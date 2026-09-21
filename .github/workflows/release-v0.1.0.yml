@@ -1,0 +1,65 @@
+name: Publish EdgeGlow v0.1.0
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/release-v0.1.0.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-v0.1.0
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - name: Build and test
+        shell: pwsh
+        run: ./build.ps1
+      - name: Package
+        shell: pwsh
+        run: ./package.ps1 -SkipBuild
+      - name: Publish release with images and download
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = 'v0.1.0'
+          $existing = & gh release view $tag --json isDraft 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            throw 'Release v0.1.0 already exists; inspect it before retrying.'
+          }
+          $base = "https://raw.githubusercontent.com/$env:GH_REPO/$env:GITHUB_SHA"
+          $notes = Get-Content RELEASE_NOTES.md -Raw
+          $comments = [regex]::Matches($notes, '<!--[\s\S]*?-->')
+          if ($comments.Count -ne 2) { throw 'Expected two image placeholders.' }
+          $notes = $notes.Replace($comments[0].Value, "![EdgeGlow — иллюстрация работы]($base/assets/release/edgeglow-cover.png)")
+          $notes = $notes.Replace($comments[1].Value, "![Визуализация эффекта EdgeGlow]($base/assets/release/edgeglow-demo.png)")
+          $notes += "`n`n[Исходники и подробная инструкция](https://github.com/$env:GH_REPO/tree/$env:GITHUB_SHA)`n"
+          $notes | Set-Content release-body.md -Encoding utf8
+          $expected = (Get-Content artifacts/SHA256SUMS.txt).Split(' ')[0]
+          $actual = (Get-FileHash artifacts/EdgeGlow-portable-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw 'Checksum mismatch.' }
+          & gh release create $tag --target $env:GITHUB_SHA --title 'EdgeGlow v0.1.0' --notes-file release-body.md --draft artifacts/EdgeGlow-portable-win-x64.zip artifacts/SHA256SUMS.txt assets/release/edgeglow-cover.png assets/release/edgeglow-demo.png
+          if ($LASTEXITCODE) { throw 'Release upload failed.' }
+          $release = (& gh release view $tag --json assets | ConvertFrom-Json)
+          foreach ($file in @('EdgeGlow-portable-win-x64.zip', 'SHA256SUMS.txt', 'edgeglow-cover.png', 'edgeglow-demo.png')) {
+            if ($file -notin $release.assets.name) { throw "Missing release asset: $file" }
+          }
+          & gh release edit $tag --draft=false --latest
+          if ($LASTEXITCODE) { throw 'Release publication failed.' }
