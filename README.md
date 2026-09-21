@@ -109,4 +109,3 @@ dotnet run --project tests/EdgeGlow.Tests.csproj -c Release -- --gpu
 [MIT](LICENSE). Сторонние лицензии находятся в `licenses/` и перечислены в [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 Ambient Monitor изучен как альтернативный подход; его GPL-3.0 код, графика и зависимости не использованы. EdgeGlow — отдельная реализация с захватом края и прозрачным наложением.
-
